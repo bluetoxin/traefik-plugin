@@ -1,12 +1,12 @@
+// Package plugindemo a demo plugin.
 package plugindemo
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"text/template"
-
-	"github.com/ua-parser/uap-go/uaparser"
 )
 
 // Config the plugin configuration.
@@ -43,110 +43,24 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	}, nil
 }
 
-var MOBILE []string = []string{
-	"iPhone",
-	"iPod",
-	"Generic Smartphone",
-	"Generic Feature Phone",
-	"PlayStation Vita",
-	"iOS-Device",
-	"Windows Phone",
-	"Windows Phone OS",
-	"Symbian OS",
-	"Bada",
-	"Windows CE",
-	"Windows Mobile",
-	"Maemo",
-	"IE Mobile",
-	"Opera Mobile",
-	"Opera Mini",
-	"Chrome Mobile",
-	"Chrome Mobile WebView",
-	"Chrome Mobile iOS",
-}
-
-var PC []string = []string{
-	"Windows 95",
-	"Windows 98",
-	"Solaris",
-	"Chrome OS",
-}
-
-var TABLET []string = []string{
-	"iPad",
-	"BlackBerry Playbook",
-	"Blackberry Playbook",
-	"Kindle",
-	"Kindle Fire",
-	"Kindle Fire HD",
-	"Galaxy Tab",
-	"Xoom",
-	"Dell Streak",
-	"Generic_Android_Tablet",
-}
-
-var EMAIL_PROGRAM_FAMILIES []string = []string{
-	"Outlook",
-	"Windows Live Mail",
-	"AirMail",
-	"Apple Mail",
-	"Outlook",
-	"Thunderbird",
-	"Lightning",
-	"ThunderBrowse",
-	"Windows Live Mail",
-	"The Bat!",
-	"Lotus Notes",
-	"IBM Notes",
-	"Barca",
-	"MailBar",
-	"kmail2",
-	"YahooMobileMail",
-}
-
-func getVersionRecursive(parts ...string) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	var version string
-	if parts[0] == "" {
-		version = "0"
-	} else {
-		version = parts[0]
-	}
-	if len(parts) > 1 && parts[1] != "" {
-		version += "." + getVersionRecursive(parts[1:]...)
-	}
-	return version
-}
-
 func (a *Demo) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	parser, _ := uaparser.NewFromBytes(uaparser.DefinitionYaml)
+	for key, value := range a.headers {
+		tmpl, err := a.template.Parse(value)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-	ua := req.Header.Get("User-Agent")
-	client := parser.Parse(ua)
+		writer := &bytes.Buffer{}
 
-	var UAVersion string
-	if client.UserAgent.Major == "" {
-		UAVersion = client.UserAgent.Major
-	} else {
-		UAVersion = getVersionRecursive(client.UserAgent.Major, client.UserAgent.Minor, client.UserAgent.Patch)
+		err = tmpl.Execute(writer, req)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		req.Header.Set(key, writer.String())
 	}
-	var OSVersion string
-	if client.Os.Major == "" {
-		OSVersion = client.Os.Major
-	} else {
-		OSVersion = getVersionRecursive(client.Os.Major, client.Os.Minor, client.Os.Patch, client.Os.PatchMinor)
-	}
 
-	rw.Write([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s",
-		client.UserAgent.Family,
-		UAVersion,
-		client.Os.Family,
-		OSVersion,
-		client.Device.Family,
-		client.Device.Brand,
-		client.Device.Model,
-	)))
+	a.next.ServeHTTP(rw, req)
 }
-
